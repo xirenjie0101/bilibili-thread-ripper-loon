@@ -1,4 +1,4 @@
-#!name = BTR Loon 实验版 0.1.0
+#!name = BTR Loon 实验版 0.1.1
 #!desc = B站媒体请求分块并发与CDN优选；不等同桌面版。须启用MITM。手机实测待完成。
 #!author = BTR Loon contributors
 #!homepage = https://github.com/xirenjie0101/bilibili-thread-ripper-loon
@@ -22,8 +22,9 @@ AND,((DOMAIN-SUFFIX,bilivideo.net),(PROTOCOL,QUIC)),REJECT
 AND,((DOMAIN,upos-hz-mirrorakam.akamaized.net),(PROTOCOL,QUIC)),REJECT
 
 [Script]
-request if ${url} ~= /^https:\/\/(?:[a-z0-9.-]+\.bilivideo\.(?:com|cn|net)|bilivideo\.(?:com|cn|net)|upos-hz-mirrorakam\.akamaized\.net)(?::443)?\/[^?#]*\.(?:m4s|mp4)(?:\?[^#]*)?$/i && ${request.method} == "GET" then script("https://raw.githubusercontent.com/xirenjie0101/bilibili-thread-ripper-loon/main/btr-loon.js", {${mode}, ${concurrency}, ${max_mib}, ${parallel}, ${route}, ${debug}}) with tag="BTR Loon 媒体加速", timeout=15, binary_body_mode=true
-generic then script("https://raw.githubusercontent.com/xirenjie0101/bilibili-thread-ripper-loon/main/btr-loon.js") with tag="BTR Loon 查看诊断", timeout=5
+request if ${url} ~= /^https:\/\/(?:[a-z0-9.-]+\.bilivideo\.(?:com|cn|net)|bilivideo\.(?:com|cn|net)|upos-hz-mirrorakam\.akamaized\.net)(?::443)?\/[^?#]*\.(?:m4s|mp4)(?:\?[^#]*)?$/i && ${request.method} == "GET" then script("https://raw.githubusercontent.com/xirenjie0101/bilibili-thread-ripper-loon/main/btr-loon.js?v=0.1.1", {${mode}, ${concurrency}, ${max_mib}, ${parallel}, ${route}, ${debug}}) with tag="BTR Loon 媒体加速", timeout=15, binary_body_mode=true
+generic then script("https://raw.githubusercontent.com/xirenjie0101/bilibili-thread-ripper-loon/main/btr-loon.js?v=0.1.1") with tag="BTR Loon 查看诊断", timeout=5
+request if ${url} ~= /^http:\/\/upos-sz-mirrorali\.bilivideo\.com\/btr-loon-self-test\.m4s(?:\?v=[0-9.]+)?$/ && ${request.method} == "GET" then script("https://raw.githubusercontent.com/xirenjie0101/bilibili-thread-ripper-loon/main/btr-loon.js?v=0.1.1") with tag="BTR Loon HTTP自检", timeout=5
 
 [Mitm]
 hostname = *.bilivideo.com,*.bilivideo.cn,*.bilivideo.net,bilivideo.com,bilivideo.cn,bilivideo.net,upos-hz-mirrorakam.akamaized.net
