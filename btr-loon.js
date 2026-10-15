@@ -1,5 +1,5 @@
 /*
- * BTR Loon Experimental 0.1.0
+ * BTR Loon Experimental 0.1.1
  * Range parsing/splitting and CDN choices adapted from Bilibili-thread-ripper
  * https://github.com/MrTangLuyao/Bilibili-thread-ripper
  * Commit: 0302b345cdfe367ac599b52dc6874e3f7967e220
@@ -25,8 +25,10 @@
 (function (root) {
   "use strict";
 
-  const VERSION = "0.1.0";
+  const VERSION = "0.1.1";
   const PREFIX = "BTR-Loon-v1";
+  const CHECK_HOST = "upos-sz-mirrorali.bilivideo.com";
+  const CHECK_PATH = "/btr-loon-self-test.m4s";
   const INTERNAL = "x-btr-loon-internal";
   const KiB = 1024;
   const MiB = 1024 * KiB;
@@ -177,16 +179,70 @@
     return headers;
   }
 
+  function safeLog(env, text) {
+    try { env.log("[BTR-Loon] " + text); } catch (_) {}
+  }
+
+  function save(env, key, value) {
+    try {
+      if (env.write(PREFIX + "." + key, value) !== false) return true;
+    } catch (_) {}
+    safeLog(env, "记录保存失败（" + key + "），没有记录不能作为未触发的证据。");
+    return false;
+  }
+
+  function diagnostics(env) {
+    const read = (key, empty) => {
+      try { return env.read(PREFIX + "." + key) || empty; }
+      catch (_) { return "读取失败；不能据此判断是否触发。"; }
+    };
+    // Use a separate key. Self-tests must never count as video or acceleration hits.
+    const token = String(env.now()) + ":" + String(Math.random());
+    const stored = save(env, "storage-check", token);
+    const storageOK = stored && read("storage-check", "") === token;
+    return [
+      "BTR Loon " + VERSION,
+      "运行环境：" + (env.runtime || "未提供"),
+      "本次存储读写自检：" + (storageOK ? "通过" : "失败；请求记录可能无法保存或读取"),
+      "最近 HTTP 自检：" + read("selftest-http", "无"),
+      "最近 HTTPS 自检：" + read("selftest-https", "无"),
+      "最近进入媒体脚本：" + read("entered", "未读到记录（不代表你没有播放）"),
+      "最近处理结果：" + read("last", "未读到记录"),
+      "最近加速成功：" + read("success", "尚无加速命中"),
+      "请结合时间判断；手动诊断和网页自检都不算加速成功。"
+    ].join("\n\n");
+  }
+
+  function selfTestProtocol(request) {
+    if (!request || String(request.method || "GET").toUpperCase() !== "GET") return null;
+    const url = String(request.url || "");
+    for (const protocol of ["http", "https"]) {
+      const base = protocol + "://" + CHECK_HOST + CHECK_PATH;
+      // A small optional version query is for browser cache busting only.
+      if (url === base || (url.startsWith(base) && /^\?v=[0-9.]+$/.test(url.slice(base.length)))) return protocol;
+    }
+    return null;
+  }
+
+  function diagnosticHTML(report, protocol) {
+    const escape = text => String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const title = protocol === "https" ? "HTTPS 媒体规则已触发" : "HTTP 自检规则已触发";
+    return '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+      '<title>BTR Loon 自检</title><style>body{font:17px system-ui;line-height:1.6;max-width:680px;margin:32px auto;padding:0 20px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f5f7;padding:16px;border-radius:12px}a{display:block;margin:16px 0}</style>' +
+      '<h1>' + title + '</h1><p>这是 Loon 在你的设备上生成的页面。此自检没有下载视频，也不表示 B 站 App 已经加速。</p>' +
+      (protocol === "http" ? '<p>下一步测试 HTTPS。只有 HTTPS 自检成功，才能确认测试域名的解密及媒体请求规则可用。</p>' : '<p>若此页正常而播放仍没有记录，需要查看 App 实际使用的媒体域名、协议和端口。</p>') +
+      '<a href="https://' + CHECK_HOST + CHECK_PATH + '?v=' + VERSION + '">打开 HTTPS 自检</a>' +
+      '<pre>' + escape(report) + '</pre></html>';
+  }
+
   async function run(env) {
     const cfg = settings(env.argument), started = env.now();
     let closed = false;
     function record(kind, reason, extra) {
       const event = Object.assign({ version: VERSION, time: new Date(env.now()).toISOString(), kind, reason }, extra || {});
       // Never persist or log signed URLs, video IDs, cookies or server errors.
-      try {
-        env.write(PREFIX + ".last", JSON.stringify(event));
-        if (kind === "parallel" || kind === "route") env.write(PREFIX + ".success", JSON.stringify(event));
-      } catch (_) {}
+      save(env, "last", JSON.stringify(event));
+      if (kind === "parallel" || kind === "route") save(env, "success", JSON.stringify(event));
       if (cfg.debug || kind === "parallel" || kind === "route") {
         try { env.log("[BTR-Loon] " + JSON.stringify(event)); } catch (_) {}
       }
@@ -199,11 +255,22 @@
     }
     const pass = reason => finish({}, "pass", reason);
     if (!env.request) {
-      let last = "尚无记录。请先播放一个视频。", success = "尚无加速命中。";
-      try { last = env.read(PREFIX + ".last") || last; success = env.read(PREFIX + ".success") || success; } catch (_) {}
-      env.log("[BTR-Loon] 最近请求：" + last + "\n最近成功：" + success);
-      env.notify("BTR Loon " + VERSION, "最近请求 / 最近成功", last + "\n" + success);
-      finish({});
+      const report = diagnostics(env);
+      safeLog(env, report);
+      try { env.notify("BTR Loon " + VERSION, "触发与存储诊断", report); } catch (_) {}
+      finish({ title: "BTR Loon " + VERSION + " 诊断", content: report });
+      return;
+    }
+    const checkProtocol = selfTestProtocol(env.request);
+    if (checkProtocol) {
+      save(env, "selftest-" + checkProtocol, JSON.stringify({ version: VERSION, time: new Date(env.now()).toISOString() }));
+      const report = diagnostics(env);
+      safeLog(env, checkProtocol.toUpperCase() + " 自检规则已触发");
+      finish({ response: { status: 200, headers: {
+        "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store, max-age=0",
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'",
+        "X-Content-Type-Options": "nosniff"
+      }, body: diagnosticHTML(report, checkProtocol) } });
       return;
     }
     const request = env.request, headers = request.headers || {};
@@ -216,6 +283,8 @@
     }
     const parsed = mediaURL(request.url);
     if (!parsed || String(request.method || "GET").toUpperCase() !== "GET") return pass("unsupported-request");
+    save(env, "entered", JSON.stringify({ version: VERSION, time: new Date(env.now()).toISOString(), host: parsed.host }));
+    if (cfg.debug) safeLog(env, "已进入媒体脚本：" + parsed.host);
     if (header(headers, "authorization") || header(headers, "cookie") ||
         Object.keys(headers).some(k => /^if-/i.test(k))) return pass("credential-or-conditional-request");
     const rangeHeader = header(headers, "range");
@@ -302,7 +371,7 @@
     } catch (_) { pass("internal-error-original-resumes"); }
   }
 
-  const api = { VERSION, header, mediaURL, parseRange, contentRange, splitRange, settings,
+  const api = { VERSION, header, mediaURL, parseRange, contentRange, splitRange, settings, selfTestProtocol,
     candidates, cleanHeaders, downloadHeaders, strongETag, validate, responseHeaders, run };
   if (typeof module === "object" && module.exports) module.exports = api;
   if (typeof $done === "function") {
@@ -310,6 +379,7 @@
     const done = value => { if (!completed) { completed = true; $done(value); } };
     run({
       request: typeof $request === "object" ? $request : null,
+      runtime: typeof $loon === "string" ? $loon : "未提供",
       argument: typeof $argument !== "undefined" ? $argument : null,
       now: () => Date.now(), timer: (fn, ms) => setTimeout(fn, ms),
       get: (options, callback) => $httpClient.get(options, callback),
@@ -317,6 +387,9 @@
       read: key => $persistentStore.read(key),
       write: (key, value) => $persistentStore.write(value, key),
       notify: (title, subtitle, content) => $notification.post(title, subtitle, content)
-    }).catch(() => done({}));
+    }).catch(() => {
+      try { console.log("[BTR-Loon] 脚本运行异常；当前请求保持原样。请查看诊断中的进入记录。"); } catch (_) {}
+      done({});
+    });
   }
 })(typeof globalThis !== "undefined" ? globalThis : this);
