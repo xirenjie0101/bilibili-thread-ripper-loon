@@ -1,18 +1,24 @@
-BTR Loon 0.1.1 verification
+BTR Loon 0.1.2 verification
 Date: 2026-10-14 (America/Los_Angeles)
 Upstream version: 2026.10.8.1
 Upstream commit: 0302b345cdfe367ac599b52dc6874e3f7967e220
 
-Automated suite: 58 tests passed; 0 failed; 0 skipped.
+Automated suite: 63 tests passed; 0 failed; 0 skipped.
 Includes: deterministic protocol/error simulations; 2000 split-range cases;
 Node VM without browser URL API; real local HTTP socket concurrency and retry;
 static plugin binding checks; manual diagnosis with absent/failed storage;
 HTTP/HTTPS self-tests with no outbound fetch or fake video success;
 HTML escaping; media entry recorded before callbacks; narrow self-test matching.
+Added HTTP/80 scheme/port matching, HTTP finite-range combination, small-request
+diagnostic hits, validated HTTP-to-HTTPS CDN selection for open ranges, and
+HTTP origin/candidate failures that preserve original playback.
 Remote package generator: three script references replaced, with a version query
 so a plugin update requests the new remote script rather than a cached old URL.
 
-NOT verified: native Loon parser/runtime, Safari self-test navigation,
+User-provided 0.1.1 screenshot: HTTPS self-test and local storage checks passed
+on Loon 3.5.2 build 1005. Captured media connection used port 80, which the
+0.1.1 HTTPS-only media rule did not match.
+NOT verified: new 0.1.2 HTTP media acceleration on native Loon,
 iPhone memory/energy usage,
 domestic Bilibili app, bilibili - Anime Video HD app, actual US CDN speed.
 Public Bilibili API probe: HTTP 412; no real media URL tested.
