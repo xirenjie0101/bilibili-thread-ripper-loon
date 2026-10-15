@@ -1,6 +1,6 @@
 {
   "name": "btr-loon-experimental",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Experimental bounded Range acceleration for Loon; not desktop BTR parity.",
   "license": "MIT",
