@@ -1,0 +1,29 @@
+#!name = BTR Loon 实验版 0.1.0
+#!desc = B站媒体请求分块并发与CDN优选；不等同桌面版。须启用MITM。手机实测待完成。
+#!author = BTR Loon contributors
+#!homepage = https://github.com/xirenjie0101/bilibili-thread-ripper-loon
+#!system = iOS,iPadOS
+#!loon_version = 3.5.1(983)
+#!date = 2026-10-14
+#!tag = 哔哩哔哩,实验性
+
+[Argument]
+mode = select,"auto","original","mainland","overseas",tag=CDN候选,desc=auto测试原地址及大陆和海外各一个节点
+concurrency = select,3,2,4,type=number,tag=每个请求的并发数,desc=多个音视频请求会叠加并发
+max_mib = select,2,1,4,type=number,tag=最大合并大小MiB,desc=超过此大小只做CDN优选
+parallel = switch,true,type=boolean,tag=分块并发
+route = switch,true,type=boolean,tag=长请求CDN优选,desc=开放范围或大请求保持App自身的流式下载
+debug = switch,false,type=boolean,tag=显示跳过原因,desc=仅记录脱敏事件
+
+[Rule]
+AND,((DOMAIN-SUFFIX,bilivideo.com),(PROTOCOL,QUIC)),REJECT
+AND,((DOMAIN-SUFFIX,bilivideo.cn),(PROTOCOL,QUIC)),REJECT
+AND,((DOMAIN-SUFFIX,bilivideo.net),(PROTOCOL,QUIC)),REJECT
+AND,((DOMAIN,upos-hz-mirrorakam.akamaized.net),(PROTOCOL,QUIC)),REJECT
+
+[Script]
+request if ${url} ~= /^https:\/\/(?:[a-z0-9.-]+\.bilivideo\.(?:com|cn|net)|bilivideo\.(?:com|cn|net)|upos-hz-mirrorakam\.akamaized\.net)(?::443)?\/[^?#]*\.(?:m4s|mp4)(?:\?[^#]*)?$/i && ${request.method} == "GET" then script("https://raw.githubusercontent.com/xirenjie0101/bilibili-thread-ripper-loon/main/btr-loon.js", {${mode}, ${concurrency}, ${max_mib}, ${parallel}, ${route}, ${debug}}) with tag="BTR Loon 媒体加速", timeout=15, binary_body_mode=true
+generic then script("https://raw.githubusercontent.com/xirenjie0101/bilibili-thread-ripper-loon/main/btr-loon.js") with tag="BTR Loon 查看诊断", timeout=5
+
+[Mitm]
+hostname = *.bilivideo.com,*.bilivideo.cn,*.bilivideo.net,bilivideo.com,bilivideo.cn,bilivideo.net,upos-hz-mirrorakam.akamaized.net
