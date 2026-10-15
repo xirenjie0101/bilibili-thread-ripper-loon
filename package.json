@@ -1,0 +1,9 @@
+{
+  "name": "btr-loon-experimental",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Experimental bounded Range acceleration for Loon; not desktop BTR parity.",
+  "license": "MIT",
+  "scripts": { "test": "node --test tests/*.test.cjs", "package:remote": "node tools/make-remote.mjs" },
+  "engines": { "node": ">=18" }
+}
