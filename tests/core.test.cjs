@@ -13,7 +13,7 @@ test("signed URL bytes and duplicate parameters survive host changes", () => {
 
 test("strict media allowlist excludes lookalikes, other Akamai users and non-media", () => {
   for (const url of [
-    "http://x.bilivideo.com/a.mp4", "https://x.bilivideo.com.evil.test/a.mp4",
+    "ftp://x.bilivideo.com/a.mp4", "https://x.bilivideo.com.evil.test/a.mp4",
     "https://evilbilivideo.com/a.mp4", "https://user@x.bilivideo.com/a.mp4",
     "https://x.bilivideo.com:4483/a.mp4", "https://x.bilivideo.com/a.mp4#frag",
     "https://unrelated.akamaized.net/a.mp4", "https://api.bilibili.com/playurl",
@@ -22,6 +22,82 @@ test("strict media allowlist excludes lookalikes, other Akamai users and non-med
   ]) assert.equal(core.mediaURL(url), null, url);
   assert.ok(core.mediaURL("https://upos-hz-mirrorakam.akamaized.net/a.m4s?x=%2f"));
   assert.ok(core.mediaURL("https://x.bilivideo.cn/a.mp4"));
+});
+
+test("HTTP/80 and HTTPS/443 preserve original signed URL bytes and reject other ports", () => {
+  for (const [scheme, port] of [["http", 80], ["https", 443]]) {
+    for (const authority of ["upos-sz-mirrorcosov.bilivideo.com", "upos-sz-mirrorcosov.bilivideo.com:" + port]) {
+      const raw = scheme + "://" + authority + "/upgcxcode/a.m4s?x=%2f&x=2&sign=a%2Bb";
+      const parsed = core.mediaURL(raw);
+      assert.equal(parsed.raw, raw);
+      assert.equal(parsed.protocol, scheme);
+      assert.equal(parsed.port, port);
+      const candidates = core.candidates(parsed, "auto");
+      assert.equal(candidates[0], raw);
+      assert.ok(candidates.slice(1).every(url => url.startsWith("https://") && url.endsWith(parsed.query)));
+    }
+    for (const badPort of [scheme === "http" ? 443 : 80, 8080, 448, 4483, "080", "0443"]) {
+      assert.equal(core.mediaURL(scheme + "://x.bilivideo.com:" + badPort + "/a.m4s"), null);
+    }
+  }
+});
+
+test("HTTP finite ranges are combined with original URL and explicit port intact", async () => {
+  const raw = URL0.replace("https://", "http://").replace(".com/", ".com:80/");
+  const state = await simulate({
+    request: { url: raw, method: "GET", headers: { Range: "bytes=0-1048575" } },
+    argument: { mode: "original" }
+  });
+  assert.equal(state.event.kind, "parallel");
+  assert.deepEqual(state.result.response.body, bytes(0, 1048576));
+  assert.ok(state.calls.every(call => call.url === raw));
+  assert.equal(state.maxActive, 3);
+  const entered = JSON.parse(state.store.get("BTR-Loon-v1.entered"));
+  assert.equal(entered.protocol, "http");
+  assert.equal(entered.port, 80);
+  assert.ok(!JSON.stringify([...state.store.values(), ...state.logs]).includes("DO_NOT_LOG"));
+});
+
+test("HTTP 128 KiB request produces a diagnostic hit while passing through without probe traffic", async () => {
+  const state = await simulate({ request: {
+    url: URL0.replace("https://", "http://"), method: "GET", headers: { Range: "bytes=0-131071" }
+  } });
+  assert.deepEqual(state.result, {});
+  assert.equal(state.event.reason, "small-range");
+  assert.equal(state.calls.length, 0);
+  assert.ok(state.store.has("BTR-Loon-v1.entered"));
+  assert.equal(state.store.has("BTR-Loon-v1.success"), false);
+});
+
+test("HTTP open ranges can select a validated HTTPS CDN without truncating the stream", async () => {
+  const raw = URL0.replace("https://", "http://");
+  const state = await simulate({
+    request: { url: raw, method: "GET", headers: { Range: "bytes=12345-" } },
+    plan(options) { const response = reply(options); response.delay = options.url === raw ? 200 : 20; return response; }
+  });
+  assert.equal(state.event.kind, "route");
+  assert.ok(state.result.url.startsWith("https://"));
+  assert.equal(state.result.headers.Range, "bytes=12345-");
+  assert.equal(core.mediaURL(state.result.url).query, core.mediaURL(raw).query);
+  assert.equal(state.result.response, undefined);
+});
+
+test("HTTP origin failures and mismatched candidate content cannot redirect playback", async () => {
+  const raw = URL0.replace("https://", "http://");
+  for (const failure of ["origin", "candidate"]) {
+    const state = await simulate({
+      request: { url: raw, method: "GET", headers: { Range: "bytes=0-" } },
+      plan(options) {
+        const response = reply(options); response.delay = options.url === raw ? 200 : 20;
+        if (failure === "origin" && options.url === raw) response.response.status = 403;
+        if (failure === "candidate" && options.url !== raw) response.data[0] ^= 1;
+        return response;
+      }
+    });
+    assert.deepEqual(state.result, {});
+    assert.equal(state.event.reason, failure === "origin" ? "origin-probe-failed" : "original-route-kept");
+    assert.equal(state.store.has("BTR-Loon-v1.success"), false);
+  }
 });
 
 test("Range parsing keeps 64-bit offsets and rejects suffix, multi-range and overflow", () => {
