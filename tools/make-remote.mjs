@@ -18,6 +18,6 @@ const source = fs.readFileSync(path.join(root, "BTR-Loon.plugin"), "utf8");
 const scriptURL = new URL("btr-loon.js", base);
 scriptURL.searchParams.set("v", JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version);
 const plugin = source.replace(/script\("btr-loon\.js"/g, 'script("' + scriptURL.href + '"')
-  .replace("须另行导入本地脚本 btr-loon.js 并启用MITM。", "须启用MITM。");
+  .replace("须另行导入本地脚本 btr-loon.js。", "");
 fs.writeFileSync(path.join(root, "BTR-Loon.remote.plugin"), plugin);
 console.log("已生成 BTR-Loon.remote.plugin。上传它和 btr-loon.js 到上述目录后，再导入插件URL。");
