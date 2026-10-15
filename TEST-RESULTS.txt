@@ -1,0 +1,15 @@
+BTR Loon 0.1.0 verification
+Date: 2026-10-14 (America/Los_Angeles)
+Upstream version: 2026.10.8.1
+Upstream commit: 0302b345cdfe367ac599b52dc6874e3f7967e220
+
+Automated suite: 51 tests passed; 0 failed; 0 skipped.
+Includes: deterministic protocol/error simulations; 2000 split-range cases;
+Node VM without browser URL API; real local HTTP socket concurrency and retry;
+static plugin binding checks.
+Remote package generator: two script references replaced; non-HTTPS URL rejected.
+
+NOT verified: native Loon parser/runtime, iPhone memory/energy usage,
+domestic Bilibili app, bilibili - Anime Video HD app, actual US CDN speed.
+Public Bilibili API probe: HTTP 412; no real media URL tested.
+No performance gain is claimed by these test results.
