@@ -119,7 +119,7 @@ async function executeDiagnostic({ request, values = new Map(), storage, runtime
 test("generic diagnostic distinguishes empty history from an unplayed video", async () => {
   const state = await executeDiagnostic({ runtime: "iPhone test 3.5.2(999)" });
   assert.equal(state.done.length, 1);
-  assert.match(state.done[0].title, /0\.1\.1/);
+  assert.ok(state.done[0].title.includes(core.VERSION));
   assert.match(state.done[0].content, /本次存储读写自检：通过/);
   assert.match(state.done[0].content, /未读到记录（不代表你没有播放）/);
   assert.match(state.done[0].content, /iPhone test 3\.5\.2/);
@@ -149,7 +149,7 @@ test("HTTP and HTTPS self-tests return local no-cache pages without video hits o
     assert.equal(state.done.length, 1);
     const response = state.done[0].response;
     assert.equal(response.status, 200);
-    assert.match(response.body, new RegExp(protocol.toUpperCase() + (protocol === "https" ? " 媒体" : " 自检") + "规则已触发"));
+    assert.match(response.body, new RegExp(protocol.toUpperCase() + " 媒体规则已触发"));
     assert.match(response.headers["Cache-Control"], /no-store/);
     assert.ok(state.values.has("BTR-Loon-v1.selftest-" + protocol));
     for (const key of ["entered", "last", "success"]) assert.equal(state.values.has("BTR-Loon-v1." + key), false);
@@ -194,7 +194,7 @@ test("media entry is recorded before network callbacks and contains no signed UR
   assert.equal(values.has("BTR-Loon-v1.last"), false);
 });
 
-test("HTTP self-test uses a narrow separate rule while HTTPS uses the real media rule", () => {
+test("HTTP and HTTPS self-tests use their respective real media rules with matching standard ports", () => {
   const plugin = fs.readFileSync(path.join(__dirname, "..", "BTR-Loon.plugin"), "utf8");
   const requestRules = plugin.split(/\r?\n/).filter(line => line.startsWith("request if "));
   const patterns = requestRules.map(line => {
@@ -205,6 +205,14 @@ test("HTTP self-test uses a narrow separate rule while HTTPS uses the real media
   assert.ok(patterns[0].test(selfTestURL));
   assert.ok(!patterns[1].test(selfTestURL));
   assert.ok(patterns[1].test(selfTestURL.replace("https:", "http:")));
-  assert.ok(!patterns[1].test(URL0.replace("https:", "http:")));
-  assert.ok(!patterns[1].test(selfTestURL.replace("https:", "http:") + "?v=0.1.1&other=1"));
+  assert.ok(patterns[1].test(URL0.replace("https:", "http:")));
+  for (const [protocol, port, pattern] of [["https", 443, patterns[0]], ["http", 80, patterns[1]]]) {
+    const url = URL0.replace("https:", protocol + ":");
+    assert.ok(pattern.test(url.replace(".com/", ".com:" + port + "/")));
+    for (const invalid of [
+      url.replace(".com/", ".com:" + (port === 443 ? 80 : 443) + "/"),
+      url.replace(".com/", ".com:4483/"), url.replace(".com/", ".com.evil.test/"),
+      url.replace(".m4s?", ".m3u8?")
+    ]) { assert.ok(!pattern.test(invalid), invalid); assert.equal(core.mediaURL(invalid), null); }
+  }
 });
