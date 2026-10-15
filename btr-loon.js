@@ -1,5 +1,5 @@
 /*
- * BTR Loon Experimental 0.1.1
+ * BTR Loon Experimental 0.1.2
  * Range parsing/splitting and CDN choices adapted from Bilibili-thread-ripper
  * https://github.com/MrTangLuyao/Bilibili-thread-ripper
  * Commit: 0302b345cdfe367ac599b52dc6874e3f7967e220
@@ -25,7 +25,7 @@
 (function (root) {
   "use strict";
 
-  const VERSION = "0.1.1";
+  const VERSION = "0.1.2";
   const PREFIX = "BTR-Loon-v1";
   const CHECK_HOST = "upos-sz-mirrorali.bilivideo.com";
   const CHECK_PATH = "/btr-loon-self-test.m4s";
@@ -49,9 +49,11 @@
   // signed path/query bytes verbatim; do not parse/re-encode the query string.
   function mediaURL(raw) {
     if (typeof raw !== "string" || /[\s\\]/.test(raw)) return null;
-    const m = /^https:\/\/([a-z0-9.-]+)(?::443)?(\/[^?#]*)(\?[^#]*)?$/i.exec(raw);
-    if (!m || !HOST.test(m[1]) || !/\.(?:m4s|mp4)$/i.test(m[2])) return null;
-    return { host: m[1].toLowerCase(), path: m[2], query: m[3] || "", raw };
+    const m = /^(https?):\/\/([a-z0-9.-]+)(?::([0-9]+))?(\/[^?#]*)(\?[^#]*)?$/i.exec(raw);
+    if (!m || !HOST.test(m[2]) || !/\.(?:m4s|mp4)$/i.test(m[4])) return null;
+    const protocol = m[1].toLowerCase(), port = protocol === "https" ? 443 : 80;
+    if (m[3] && m[3] !== String(port)) return null;
+    return { host: m[2].toLowerCase(), protocol, port, path: m[4], query: m[5] || "", raw };
   }
 
   function parseRange(value) {
@@ -108,6 +110,8 @@
   }
 
   function candidates(parsed, mode) {
+    // Retain the exact original HTTP/HTTPS URL. Alternate CDNs use HTTPS;
+    // validate them against the origin before selecting or combining content.
     return [parsed.raw].concat(POOLS[mode].map(host => "https://" + host + parsed.path + parsed.query))
       .filter((url, i, urls) => urls.indexOf(url) === i);
   }
@@ -215,22 +219,18 @@
 
   function selfTestProtocol(request) {
     if (!request || String(request.method || "GET").toUpperCase() !== "GET") return null;
-    const url = String(request.url || "");
-    for (const protocol of ["http", "https"]) {
-      const base = protocol + "://" + CHECK_HOST + CHECK_PATH;
-      // A small optional version query is for browser cache busting only.
-      if (url === base || (url.startsWith(base) && /^\?v=[0-9.]+$/.test(url.slice(base.length)))) return protocol;
-    }
-    return null;
+    const parsed = mediaURL(request.url);
+    return parsed && parsed.host === CHECK_HOST && parsed.path === CHECK_PATH &&
+      (!parsed.query || /^\?v=[0-9.]+$/.test(parsed.query)) ? parsed.protocol : null;
   }
 
   function diagnosticHTML(report, protocol) {
     const escape = text => String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-    const title = protocol === "https" ? "HTTPS 媒体规则已触发" : "HTTP 自检规则已触发";
+    const title = protocol.toUpperCase() + " 媒体规则已触发";
     return '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
       '<title>BTR Loon 自检</title><style>body{font:17px system-ui;line-height:1.6;max-width:680px;margin:32px auto;padding:0 20px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f5f7;padding:16px;border-radius:12px}a{display:block;margin:16px 0}</style>' +
       '<h1>' + title + '</h1><p>这是 Loon 在你的设备上生成的页面。此自检没有下载视频，也不表示 B 站 App 已经加速。</p>' +
-      (protocol === "http" ? '<p>下一步测试 HTTPS。只有 HTTPS 自检成功，才能确认测试域名的解密及媒体请求规则可用。</p>' : '<p>若此页正常而播放仍没有记录，需要查看 App 实际使用的媒体域名、协议和端口。</p>') +
+      (protocol === "http" ? '<p>HTTP/80 媒体规则可用；HTTP 明文请求不需要 MitM 解密。HTTPS 自检用于另行确认 HTTPS 规则和解密。</p>' : '<p>若此页正常而播放仍没有记录，需要查看 App 实际使用的媒体域名、协议和端口。HTTP/80 媒体从 0.1.2 起支持。</p>') +
       '<a href="https://' + CHECK_HOST + CHECK_PATH + '?v=' + VERSION + '">打开 HTTPS 自检</a>' +
       '<pre>' + escape(report) + '</pre></html>';
   }
@@ -283,7 +283,7 @@
     }
     const parsed = mediaURL(request.url);
     if (!parsed || String(request.method || "GET").toUpperCase() !== "GET") return pass("unsupported-request");
-    save(env, "entered", JSON.stringify({ version: VERSION, time: new Date(env.now()).toISOString(), host: parsed.host }));
+    save(env, "entered", JSON.stringify({ version: VERSION, time: new Date(env.now()).toISOString(), host: parsed.host, protocol: parsed.protocol, port: parsed.port }));
     if (cfg.debug) safeLog(env, "已进入媒体脚本：" + parsed.host);
     if (header(headers, "authorization") || header(headers, "cookie") ||
         Object.keys(headers).some(k => /^if-/i.test(k))) return pass("credential-or-conditional-request");
